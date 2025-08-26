@@ -1,0 +1,31 @@
+package com.intuit.fileUploadDemo.dto.request;
+
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.List;
+
+@Getter
+@Setter
+public class CompleteFileRequest {
+
+    @NotBlank
+    private String uploadId;
+
+    @NotEmpty @Valid
+    private List<PartETag> parts;
+
+    @Getter @Setter
+    public static class PartETag {
+
+        @Min(1)
+        private int partNumber;
+
+        @NotBlank
+        private String eTag;
+    }
+}

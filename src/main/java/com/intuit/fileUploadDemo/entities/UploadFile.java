@@ -2,6 +2,7 @@ package com.intuit.fileUploadDemo.entities;
 
 
 import com.intuit.fileUploadDemo.entities.enums.FileStatus;
+import com.intuit.fileUploadDemo.repository.UploadSession;
 import jakarta.persistence.*;
 import lombok.*;
 
