@@ -1,4 +1,4 @@
-package com.intuit.fileUploadDemo.repository;
+package com.intuit.fileUploadDemo.entities;
 
 import com.intuit.fileUploadDemo.entities.enums.SessionStatus;
 import jakarta.persistence.*;

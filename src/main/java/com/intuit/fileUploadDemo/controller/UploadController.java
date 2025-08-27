@@ -28,7 +28,7 @@ public class UploadController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
-    @PostMapping("/{}/files")
+    @PostMapping("/{sessionId}/files")
     public ResponseEntity<RegisterFileResponse> registerFile(@PathVariable String sessionId, @Valid @RequestBody RegisterFileRequest request) {
         RegisterFileResponse response = uploadService.registerFile(sessionId, request);
         return ResponseEntity.status(HttpStatus.OK).body(response);

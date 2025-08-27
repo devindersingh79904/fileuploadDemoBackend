@@ -1,5 +1,6 @@
 package com.intuit.fileUploadDemo.repository;
 
+import com.intuit.fileUploadDemo.entities.UploadSession;
 import com.intuit.fileUploadDemo.entities.enums.SessionStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
