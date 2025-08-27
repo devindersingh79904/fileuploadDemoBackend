@@ -17,6 +17,7 @@ import com.intuit.fileUploadDemo.entities.enums.SessionStatus;
 import com.intuit.fileUploadDemo.repository.UploadChunkRepository;
 import com.intuit.fileUploadDemo.repository.UploadFileRepository;
 import com.intuit.fileUploadDemo.repository.UploadSessionRepository;
+import com.intuit.fileUploadDemo.service.S3MultipartService;
 import com.intuit.fileUploadDemo.service.UploadService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -33,7 +34,7 @@ public class UploadServiceImpl implements UploadService {
     private final UploadSessionRepository uploadSessionRepository;
     private final UploadFileRepository uploadFileRepository;
     private final UploadChunkRepository uploadChunkRepository;
-
+    private final S3MultipartService multipartSvc;
 
 
     private String nextSessionId(){
@@ -88,7 +89,12 @@ public class UploadServiceImpl implements UploadService {
         ensureSessionMutable(session);
         String fileId = nextFileId();
         String s3Key = sessionId + "/" + fileId + "/" + request.getFileName();
-        String uploadId = "UPLOAD-" + fileId;
+
+        String uploadId = multipartSvc.start(
+                s3Key,
+                "application/octet-stream" // default since RegisterFileRequest has no contentType
+        );
+
 
         UploadFile file = UploadFile.builder()
                 .id(fileId)
@@ -143,7 +149,12 @@ public class UploadServiceImpl implements UploadService {
 
         // In real impl: generate S3 pre-signed PUT URL using bucket+key+uploadId+partNumber.
         // Here we stub a predictable URL so you can wire the client later:
-        String presigned = String.format("https://presign.local/%s/%s?partNumber=%d", file.getId(), file.getS3Key(), partNumber);
+        String presigned = multipartSvc.presignPart(
+                file.getS3Key(),
+                file.getUploadId(),
+                partNumber,
+                0L // pass actual part size if you track it; 0L = not bound in signature
+        );
 
         return new PresignPartUrlResponse(presigned);
     }
@@ -169,6 +180,12 @@ public class UploadServiceImpl implements UploadService {
                 })
                 .collect(Collectors.toMap(CompleteFileRequest.PartETag::getPartNumber, CompleteFileRequest.PartETag::getETag));
 
+        List<Map.Entry<Integer, String>> partEntries = partToEtag.entrySet().stream().toList();
+        multipartSvc.complete(
+                file.getS3Key(),
+                file.getUploadId(),
+                partEntries
+        );
 
         List<UploadChunk> chunks = uploadChunkRepository.findByFileIdOrderByChunkIndexAsc(fileId);
         for (UploadChunk c : chunks) {

@@ -1,5 +1,6 @@
 package com.intuit.fileUploadDemo.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -26,6 +27,7 @@ public class CompleteFileRequest {
         private int partNumber;
 
         @NotBlank
+        @JsonProperty("eTag")
         private String eTag;
     }
 }
