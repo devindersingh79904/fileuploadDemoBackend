@@ -14,6 +14,7 @@ import com.intuit.fileUploadDemo.entities.UploadSession;
 import com.intuit.fileUploadDemo.entities.enums.ChunkStatus;
 import com.intuit.fileUploadDemo.entities.enums.FileStatus;
 import com.intuit.fileUploadDemo.entities.enums.SessionStatus;
+import com.intuit.fileUploadDemo.exception.ResourceNotFoundException;
 import com.intuit.fileUploadDemo.repository.UploadChunkRepository;
 import com.intuit.fileUploadDemo.repository.UploadFileRepository;
 import com.intuit.fileUploadDemo.repository.UploadSessionRepository;
@@ -96,7 +97,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public RegisterFileResponse registerFile(String sessionId, RegisterFileRequest request) {
         UploadSession session = uploadSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new NoSuchElementException("Session not found  " + sessionId));
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found  " + sessionId));
 
         ensureSessionMutable(session);
 
@@ -141,7 +142,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public PresignPartUrlResponse presignPartUrl(String fileId, PresignPartUrlRequest request) {
         UploadFile file = uploadFileRepository.findById(fileId)
-                .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
+                .orElseThrow(() -> new ResourceNotFoundException("File not found: " + fileId));
 
         ensureFileMutable(file);
 
@@ -156,7 +157,7 @@ public class UploadServiceImpl implements UploadService {
 
         int chunkIndex = partNumber - 1;
         uploadChunkRepository.findByFileIdAndChunkIndex(fileId, chunkIndex)
-                .orElseThrow(() -> new NoSuchElementException("Chunk not found for part " + partNumber));
+                .orElseThrow(() -> new ResourceNotFoundException("Chunk not found for part " + partNumber));
 
         String presigned = multipartSvc.presignPart(
                 file.getS3Key(),
@@ -172,7 +173,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public void completeFile(String fileId, CompleteFileRequest request) {
         UploadFile file = uploadFileRepository.findById(fileId)
-                .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
+                .orElseThrow(() -> new ResourceNotFoundException("File not found: " + fileId));
 
         ensureFileMutable(file);
 
@@ -224,7 +225,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public SessionStatusResponse getSessionStatus(String sessionId) {
         UploadSession session = uploadSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found: " + sessionId));
 
         List<UploadFile> files = uploadFileRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
 
@@ -246,14 +247,14 @@ public class UploadServiceImpl implements UploadService {
             ));
         }
 
-        return new SessionStatusResponse(session.getId(), items);
+        return new SessionStatusResponse(session.getId(), session.getStatus(), items);
     }
 
     @Override
     @Transactional
     public void pauseSession(String sessionId) {
         UploadSession s = uploadSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found: " + sessionId));
 
         if (s.getStatus() == SessionStatus.COMPLETED
                 || s.getStatus() == SessionStatus.FAILED
@@ -281,7 +282,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public void resumeSession(String sessionId) {
         UploadSession s = uploadSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found: " + sessionId));
 
         if (s.getStatus() == SessionStatus.COMPLETED
                 || s.getStatus() == SessionStatus.FAILED
@@ -308,7 +309,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public void pauseFile(String fileId) {
         UploadFile f = uploadFileRepository.findById(fileId)
-                .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
+                .orElseThrow(() -> new ResourceNotFoundException("File not found: " + fileId));
         if (f.getStatus() == FileStatus.UPLOADED || f.getStatus() == FileStatus.FAILED) {
             throw new IllegalStateException("Cannot pause file in status " + f.getStatus());
         }
@@ -323,7 +324,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public void resumeFile(String fileId) {
         UploadFile f = uploadFileRepository.findById(fileId)
-                .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
+                .orElseThrow(() -> new ResourceNotFoundException("File not found: " + fileId));
         if (f.getStatus() == FileStatus.UPLOADED || f.getStatus() == FileStatus.FAILED) {
             throw new IllegalStateException("Cannot resume file in status " + f.getStatus());
         }
@@ -341,7 +342,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public void completeSession(String sessionId) {
         UploadSession s = uploadSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
+                .orElseThrow(() -> new ResourceNotFoundException("Session not found: " + sessionId));
 
         if (s.getStatus() == SessionStatus.COMPLETED
                 || s.getStatus() == SessionStatus.CANCELLED

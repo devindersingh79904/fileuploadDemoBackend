@@ -1,6 +1,7 @@
 package com.intuit.fileUploadDemo.dto.response;
 
 import com.intuit.fileUploadDemo.entities.enums.FileStatus;
+import com.intuit.fileUploadDemo.entities.enums.SessionStatus;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -10,6 +11,7 @@ import java.util.List;
 @AllArgsConstructor
 public class SessionStatusResponse {
     private final String sessionId;
+    private SessionStatus status;
     private final List<FileStatusItem> files;
 
     @Getter
