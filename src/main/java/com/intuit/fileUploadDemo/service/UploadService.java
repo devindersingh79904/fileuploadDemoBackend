@@ -25,4 +25,5 @@ public interface UploadService {
     void pauseFile(String fileId);
     void resumeFile(String fileId);
 
+    void completeSession(String sessionId);
 }

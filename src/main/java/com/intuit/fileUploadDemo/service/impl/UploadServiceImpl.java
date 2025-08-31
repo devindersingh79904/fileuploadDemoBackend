@@ -37,18 +37,15 @@ public class UploadServiceImpl implements UploadService {
     private final S3MultipartService multipartSvc;
 
     private String nextSessionId() {
-        long n = uploadSessionRepository.count() + 1;
-        return "S" + n;
+        return "S" + java.util.UUID.randomUUID().toString().replace("-", "");
     }
 
     private String nextFileId() {
-        long n = uploadFileRepository.count() + 1;
-        return "F" + n;
+        return "F" + java.util.UUID.randomUUID().toString().replace("-", "");
     }
 
     private String nextChunkId() {
-        long n = uploadChunkRepository.count() + 1;
-        return "C" + n;
+        return "C" + java.util.UUID.randomUUID().toString().replace("-", "");
     }
 
     private void ensureSessionMutable(UploadSession s) {
@@ -66,14 +63,13 @@ public class UploadServiceImpl implements UploadService {
     }
 
     // ───────────────────────────────────────────────────────────────
-    // UPDATED: Start Session (idempotent per user)
+    // Start Session (idempotent per user)
     // ───────────────────────────────────────────────────────────────
     @Override
     @Transactional
     public StartSessionResponse startSession(StartSessionRequest request) {
         String userId = request.getUserId();
 
-        // Check if there's an existing IN_PROGRESS or PAUSED session for this user
         Optional<UploadSession> existing = uploadSessionRepository
                 .findFirstByUserIdAndStatusIn(userId, Arrays.asList(
                         SessionStatus.IN_PROGRESS,
@@ -84,7 +80,6 @@ public class UploadServiceImpl implements UploadService {
             return new StartSessionResponse(existing.get().getId());
         }
 
-        // Else create new session
         String sessionId = nextSessionId();
         UploadSession session = UploadSession.builder()
                 .id(sessionId)
@@ -104,6 +99,7 @@ public class UploadServiceImpl implements UploadService {
                 .orElseThrow(() -> new NoSuchElementException("Session not found  " + sessionId));
 
         ensureSessionMutable(session);
+
         String fileId = nextFileId();
         String s3Key = sessionId + "/" + fileId + "/" + request.getFileName();
 
@@ -159,7 +155,7 @@ public class UploadServiceImpl implements UploadService {
         }
 
         int chunkIndex = partNumber - 1;
-        UploadChunk chunk = uploadChunkRepository.findByFileIdAndChunkIndex(fileId, chunkIndex)
+        uploadChunkRepository.findByFileIdAndChunkIndex(fileId, chunkIndex)
                 .orElseThrow(() -> new NoSuchElementException("Chunk not found for part " + partNumber));
 
         String presigned = multipartSvc.presignPart(
@@ -179,6 +175,7 @@ public class UploadServiceImpl implements UploadService {
                 .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
 
         ensureFileMutable(file);
+
         if (!Objects.equals(file.getUploadId(), request.getUploadId())) {
             throw new IllegalArgumentException("uploadId mismatch for file " + fileId);
         }
@@ -198,6 +195,7 @@ public class UploadServiceImpl implements UploadService {
                 partEntries
         );
 
+        // Mark chunks uploaded with ETags
         List<UploadChunk> chunks = uploadChunkRepository.findByFileIdOrderByChunkIndexAsc(fileId);
         for (UploadChunk c : chunks) {
             int partNo = c.getChunkIndex() + 1;
@@ -208,7 +206,6 @@ public class UploadServiceImpl implements UploadService {
             c.setEtag(etag);
             c.setStatus(ChunkStatus.UPLOADED);
             c.setUploadedAt(Instant.now());
-
             uploadChunkRepository.save(c);
         }
 
@@ -217,15 +214,10 @@ public class UploadServiceImpl implements UploadService {
         file.setUpdatedAt(Instant.now());
         uploadFileRepository.save(file);
 
-        String sessionId = file.getSession().getId();
-        List<UploadFile> filesInSession = uploadFileRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-        boolean allUploaded = filesInSession.stream().allMatch(f -> f.getStatus() == FileStatus.UPLOADED);
-        if (allUploaded) {
-            UploadSession s = file.getSession();
-            s.setStatus(SessionStatus.COMPLETED);
-            s.setUpdatedAt(Instant.now());
-            uploadSessionRepository.save(s);
-        }
+        // IMPORTANT: Do NOT auto-complete session here.
+        UploadSession s = file.getSession();
+        s.setUpdatedAt(Instant.now());
+        uploadSessionRepository.save(s);
     }
 
     @Override
@@ -340,5 +332,31 @@ public class UploadServiceImpl implements UploadService {
         f.setStatus(FileStatus.IN_PROGRESS);
         f.setUpdatedAt(Instant.now());
         uploadFileRepository.save(f);
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // NEW: Explicit session finalize
+    // ───────────────────────────────────────────────────────────────
+    @Override
+    @Transactional
+    public void completeSession(String sessionId) {
+        UploadSession s = uploadSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
+
+        if (s.getStatus() == SessionStatus.COMPLETED
+                || s.getStatus() == SessionStatus.CANCELLED
+                || s.getStatus() == SessionStatus.FAILED) {
+            throw new IllegalStateException("Cannot complete session in status " + s.getStatus());
+        }
+
+        List<UploadFile> files = uploadFileRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        boolean allUploaded = files.stream().allMatch(f -> f.getStatus() == FileStatus.UPLOADED);
+        if (!allUploaded) {
+            throw new IllegalStateException("Not all files are uploaded; cannot complete session.");
+        }
+
+        s.setStatus(SessionStatus.COMPLETED);
+        s.setUpdatedAt(Instant.now());
+        uploadSessionRepository.save(s);
     }
 }
