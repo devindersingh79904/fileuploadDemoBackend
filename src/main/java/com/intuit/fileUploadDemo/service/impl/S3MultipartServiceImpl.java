@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedUploadPartReq
 import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -87,5 +88,35 @@ public class S3MultipartServiceImpl implements S3MultipartService {
                 .key(key)
                 .uploadId(uploadId)
                 .build());
+    }
+
+
+    @Override
+    public List<Map.Entry<Integer, String>> listParts(String key, String uploadId) {
+        List<Map.Entry<Integer, String>> parts = new ArrayList<>();
+        Integer partMarker = null;
+
+        boolean isTruncated;
+        do {
+            ListPartsResponse resp = s3.listParts(
+                    ListPartsRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .uploadId(uploadId)
+                            .partNumberMarker(partMarker)
+                            .build()
+            );
+
+            resp.parts().forEach(p ->
+                    parts.add(Map.entry(p.partNumber(), p.eTag()))
+            );
+
+            isTruncated = resp.isTruncated();
+            partMarker = resp.nextPartNumberMarker();
+        } while (isTruncated);
+
+        return parts.stream()
+                .sorted(Comparator.comparingInt(Map.Entry::getKey))
+                .toList();
     }
 }

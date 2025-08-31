@@ -4,10 +4,7 @@ import com.intuit.fileUploadDemo.dto.request.CompleteFileRequest;
 import com.intuit.fileUploadDemo.dto.request.PresignPartUrlRequest;
 import com.intuit.fileUploadDemo.dto.request.RegisterFileRequest;
 import com.intuit.fileUploadDemo.dto.request.StartSessionRequest;
-import com.intuit.fileUploadDemo.dto.response.PresignPartUrlResponse;
-import com.intuit.fileUploadDemo.dto.response.RegisterFileResponse;
-import com.intuit.fileUploadDemo.dto.response.SessionStatusResponse;
-import com.intuit.fileUploadDemo.dto.response.StartSessionResponse;
+import com.intuit.fileUploadDemo.dto.response.*;
 import com.intuit.fileUploadDemo.entities.UploadChunk;
 import com.intuit.fileUploadDemo.entities.UploadFile;
 import com.intuit.fileUploadDemo.entities.UploadSession;
@@ -360,4 +357,76 @@ public class UploadServiceImpl implements UploadService {
         s.setUpdatedAt(Instant.now());
         uploadSessionRepository.save(s);
     }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public FilePartsResponse getFileParts(String fileId) {
+        // 1) Validate file exists
+        UploadFile file = uploadFileRepository.findById(fileId)
+                .orElseThrow(() -> new ResourceNotFoundException("File not found: " + fileId));
+
+        // 2) Validate totalChunks
+        Integer totalChunks = file.getTotalChunks();
+        if (totalChunks == null || totalChunks <= 0) {
+            throw new IllegalStateException("File totalChunks is not initialized or invalid for file " + fileId);
+        }
+
+        // 3) If already completed, ListParts is not applicable (upload is closed)
+        if (file.getStatus() == FileStatus.UPLOADED) {
+            List<Integer> uploadedNums = new ArrayList<>(totalChunks);
+            for (int i = 1; i <= totalChunks; i++) uploadedNums.add(i);
+
+            return new FilePartsResponse(
+                    file.getId(),
+                    file.getS3Key(),
+                    file.getUploadId(),      // may be null after completion; included for completeness
+                    totalChunks,
+                    uploadedNums,
+                    List.of(),               // pending
+                    List.of()                // uploadedParts with ETags (not available after completion)
+            );
+        }
+
+        // 4) For in-flight uploads, we must have an active uploadId
+        String uploadId = file.getUploadId();
+        if (uploadId == null || uploadId.isBlank()) {
+            throw new IllegalStateException("No active multipart uploadId for file " + fileId);
+        }
+
+        // 5) Ask S3 which parts are present (authoritative)
+        List<Map.Entry<Integer, String>> s3Parts = multipartSvc.listParts(file.getS3Key(), uploadId);
+
+        // Normalize: strip quotes from ETags if any, sort by partNumber
+        List<FilePartsResponse.UploadedPart> uploadedParts = s3Parts.stream()
+                .map(e -> new FilePartsResponse.UploadedPart(
+                        e.getKey(),
+                        e.getValue() == null ? null : e.getValue().replace("\"", "")
+                ))
+                .sorted(Comparator.comparingInt(FilePartsResponse.UploadedPart::getPartNumber))
+                .toList();
+
+        List<Integer> uploadedPartNumbers = uploadedParts.stream()
+                .map(FilePartsResponse.UploadedPart::getPartNumber)
+                .toList();
+
+        // 6) Compute pending = 1..totalChunks minus uploaded
+        Set<Integer> uploadedSet = new HashSet<>(uploadedPartNumbers);
+        List<Integer> pendingPartNumbers = new ArrayList<>();
+        for (int i = 1; i <= totalChunks; i++) {
+            if (!uploadedSet.contains(i)) pendingPartNumbers.add(i);
+        }
+
+        // 7) Build response
+        return new FilePartsResponse(
+                file.getId(),
+                file.getS3Key(),
+                uploadId,
+                totalChunks,
+                uploadedPartNumbers,
+                pendingPartNumbers,
+                uploadedParts
+        );
+    }
+
 }

@@ -11,7 +11,7 @@ import java.util.List;
 @AllArgsConstructor
 public class SessionStatusResponse {
     private final String sessionId;
-    private SessionStatus status;
+    private final SessionStatus status;
     private final List<FileStatusItem> files;
 
     @Getter

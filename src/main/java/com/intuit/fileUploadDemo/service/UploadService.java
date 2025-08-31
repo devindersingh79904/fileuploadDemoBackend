@@ -5,10 +5,7 @@ import com.intuit.fileUploadDemo.dto.request.CompleteFileRequest;
 import com.intuit.fileUploadDemo.dto.request.PresignPartUrlRequest;
 import com.intuit.fileUploadDemo.dto.request.RegisterFileRequest;
 import com.intuit.fileUploadDemo.dto.request.StartSessionRequest;
-import com.intuit.fileUploadDemo.dto.response.PresignPartUrlResponse;
-import com.intuit.fileUploadDemo.dto.response.RegisterFileResponse;
-import com.intuit.fileUploadDemo.dto.response.SessionStatusResponse;
-import com.intuit.fileUploadDemo.dto.response.StartSessionResponse;
+import com.intuit.fileUploadDemo.dto.response.*;
 
 public interface UploadService {
 
@@ -26,4 +23,5 @@ public interface UploadService {
     void resumeFile(String fileId);
 
     void completeSession(String sessionId);
+    FilePartsResponse getFileParts(String fileId);
 }

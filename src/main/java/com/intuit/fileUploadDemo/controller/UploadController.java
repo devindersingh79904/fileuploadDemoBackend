@@ -4,10 +4,7 @@ import com.intuit.fileUploadDemo.dto.request.CompleteFileRequest;
 import com.intuit.fileUploadDemo.dto.request.PresignPartUrlRequest;
 import com.intuit.fileUploadDemo.dto.request.RegisterFileRequest;
 import com.intuit.fileUploadDemo.dto.request.StartSessionRequest;
-import com.intuit.fileUploadDemo.dto.response.PresignPartUrlResponse;
-import com.intuit.fileUploadDemo.dto.response.RegisterFileResponse;
-import com.intuit.fileUploadDemo.dto.response.SessionStatusResponse;
-import com.intuit.fileUploadDemo.dto.response.StartSessionResponse;
+import com.intuit.fileUploadDemo.dto.response.*;
 import com.intuit.fileUploadDemo.service.UploadService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -96,5 +93,11 @@ public class UploadController {
     public ResponseEntity<Void> resumeFile(@PathVariable String fileId) {
         uploadService.resumeFile(fileId);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/files/{fileId}/parts")
+    public ResponseEntity<FilePartsResponse> getFileParts(@PathVariable String fileId) {
+        FilePartsResponse body = uploadService.getFileParts(fileId);
+        return ResponseEntity.ok(body);
     }
 }

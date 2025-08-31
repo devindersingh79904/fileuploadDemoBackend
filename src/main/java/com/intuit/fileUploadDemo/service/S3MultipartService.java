@@ -1,6 +1,5 @@
 package com.intuit.fileUploadDemo.service;
 
-
 import java.util.List;
 import java.util.Map;
 
@@ -36,4 +35,10 @@ public interface S3MultipartService {
      * Abort a multipart upload.
      */
     void abort(String key, String uploadId);
+
+    /**
+     * List already-uploaded parts for an in-progress multipart upload.
+     * Returns (partNumber, eTag) entries sorted by partNumber.
+     */
+    List<Map.Entry<Integer, String>> listParts(String key, String uploadId);
 }
