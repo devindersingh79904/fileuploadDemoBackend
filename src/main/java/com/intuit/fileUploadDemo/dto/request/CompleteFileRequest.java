@@ -5,13 +5,17 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.util.List;
 
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class CompleteFileRequest {
 
     @NotBlank
@@ -21,6 +25,8 @@ public class CompleteFileRequest {
     private List<PartETag> parts;
 
     @Getter @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class PartETag {
 
         @Min(1)
