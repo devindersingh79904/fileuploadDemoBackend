@@ -36,8 +36,7 @@ public class UploadServiceImpl implements UploadService {
     private final UploadChunkRepository uploadChunkRepository;
     private final S3MultipartService multipartSvc;
 
-
-    private String nextSessionId(){
+    private String nextSessionId() {
         long n = uploadSessionRepository.count() + 1;
         return "S" + n;
     }
@@ -52,26 +51,44 @@ public class UploadServiceImpl implements UploadService {
         return "C" + n;
     }
 
-    private void ensureSessionMutable(UploadSession s){
-        if(s.getStatus() == SessionStatus.COMPLETED || s.getStatus() == SessionStatus.CANCELLED || s.getStatus() == SessionStatus.FAILED){
+    private void ensureSessionMutable(UploadSession s) {
+        if (s.getStatus() == SessionStatus.COMPLETED
+                || s.getStatus() == SessionStatus.CANCELLED
+                || s.getStatus() == SessionStatus.FAILED) {
             throw new IllegalStateException("Session is not mutable");
         }
     }
 
-    private void ensureFileMutable(UploadFile f){
-        if(f.getStatus() == FileStatus.UPLOADED || f.getStatus() == FileStatus.FAILED){
+    private void ensureFileMutable(UploadFile f) {
+        if (f.getStatus() == FileStatus.UPLOADED || f.getStatus() == FileStatus.FAILED) {
             throw new IllegalStateException("File is not mutable");
         }
     }
 
-
+    // ───────────────────────────────────────────────────────────────
+    // UPDATED: Start Session (idempotent per user)
+    // ───────────────────────────────────────────────────────────────
     @Override
     @Transactional
     public StartSessionResponse startSession(StartSessionRequest request) {
+        String userId = request.getUserId();
+
+        // Check if there's an existing IN_PROGRESS or PAUSED session for this user
+        Optional<UploadSession> existing = uploadSessionRepository
+                .findFirstByUserIdAndStatusIn(userId, Arrays.asList(
+                        SessionStatus.IN_PROGRESS,
+                        SessionStatus.PAUSED
+                ));
+
+        if (existing.isPresent()) {
+            return new StartSessionResponse(existing.get().getId());
+        }
+
+        // Else create new session
         String sessionId = nextSessionId();
         UploadSession session = UploadSession.builder()
                 .id(sessionId)
-                .userId(request.getUserId())
+                .userId(userId)
                 .status(SessionStatus.IN_PROGRESS)
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
@@ -84,7 +101,7 @@ public class UploadServiceImpl implements UploadService {
     @Transactional
     public RegisterFileResponse registerFile(String sessionId, RegisterFileRequest request) {
         UploadSession session = uploadSessionRepository.findById(sessionId)
-                .orElseThrow(()-> new NoSuchElementException("Session not found  " + sessionId));
+                .orElseThrow(() -> new NoSuchElementException("Session not found  " + sessionId));
 
         ensureSessionMutable(session);
         String fileId = nextFileId();
@@ -92,9 +109,8 @@ public class UploadServiceImpl implements UploadService {
 
         String uploadId = multipartSvc.start(
                 s3Key,
-                "application/octet-stream" // default since RegisterFileRequest has no contentType
+                "application/octet-stream"
         );
-
 
         UploadFile file = UploadFile.builder()
                 .id(fileId)
@@ -122,17 +138,16 @@ public class UploadServiceImpl implements UploadService {
             uploadChunkRepository.save(chunk);
         }
 
-        return new RegisterFileResponse(fileId,s3Key,uploadId);
+        return new RegisterFileResponse(fileId, s3Key, uploadId);
     }
 
     @Override
     @Transactional
     public PresignPartUrlResponse presignPartUrl(String fileId, PresignPartUrlRequest request) {
         UploadFile file = uploadFileRepository.findById(fileId)
-                .orElseThrow(()-> new NoSuchElementException("File not found: " + fileId));
+                .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
 
         ensureFileMutable(file);
-
 
         if (file.getStatus() == FileStatus.PAUSED) {
             throw new IllegalStateException("File is paused. Resume before presigning parts.");
@@ -147,13 +162,11 @@ public class UploadServiceImpl implements UploadService {
         UploadChunk chunk = uploadChunkRepository.findByFileIdAndChunkIndex(fileId, chunkIndex)
                 .orElseThrow(() -> new NoSuchElementException("Chunk not found for part " + partNumber));
 
-        // In real impl: generate S3 pre-signed PUT URL using bucket+key+uploadId+partNumber.
-        // Here we stub a predictable URL so you can wire the client later:
         String presigned = multipartSvc.presignPart(
                 file.getS3Key(),
                 file.getUploadId(),
                 partNumber,
-                0L // pass actual part size if you track it; 0L = not bound in signature
+                0L
         );
 
         return new PresignPartUrlResponse(presigned);
@@ -162,7 +175,6 @@ public class UploadServiceImpl implements UploadService {
     @Override
     @Transactional
     public void completeFile(String fileId, CompleteFileRequest request) {
-
         UploadFile file = uploadFileRepository.findById(fileId)
                 .orElseThrow(() -> new NoSuchElementException("File not found: " + fileId));
 
@@ -171,7 +183,6 @@ public class UploadServiceImpl implements UploadService {
             throw new IllegalArgumentException("uploadId mismatch for file " + fileId);
         }
 
-        // Validate parts present and within range; map to chunk updates
         Map<Integer, String> partToEtag = request.getParts().stream()
                 .peek(p -> {
                     if (p.getPartNumber() < 1 || p.getPartNumber() > file.getTotalChunks()) {
@@ -189,7 +200,7 @@ public class UploadServiceImpl implements UploadService {
 
         List<UploadChunk> chunks = uploadChunkRepository.findByFileIdOrderByChunkIndexAsc(fileId);
         for (UploadChunk c : chunks) {
-            int partNo = c.getChunkIndex() + 1; // convert to 1-based
+            int partNo = c.getChunkIndex() + 1;
             String etag = partToEtag.get(partNo);
             if (etag == null || etag.isBlank()) {
                 throw new IllegalStateException("Missing ETag for partNumber " + partNo);
@@ -206,7 +217,6 @@ public class UploadServiceImpl implements UploadService {
         file.setUpdatedAt(Instant.now());
         uploadFileRepository.save(file);
 
-        // If all files in session are uploaded, mark session completed
         String sessionId = file.getSession().getId();
         List<UploadFile> filesInSession = uploadFileRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
         boolean allUploaded = filesInSession.stream().allMatch(f -> f.getStatus() == FileStatus.UPLOADED);
@@ -216,7 +226,6 @@ public class UploadServiceImpl implements UploadService {
             s.setUpdatedAt(Instant.now());
             uploadSessionRepository.save(s);
         }
-
     }
 
     @Override
@@ -254,19 +263,18 @@ public class UploadServiceImpl implements UploadService {
         UploadSession s = uploadSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
 
-        if (s.getStatus() == SessionStatus.COMPLETED ||
-                s.getStatus() == SessionStatus.FAILED ||
-                s.getStatus() == SessionStatus.CANCELLED) {
+        if (s.getStatus() == SessionStatus.COMPLETED
+                || s.getStatus() == SessionStatus.FAILED
+                || s.getStatus() == SessionStatus.CANCELLED) {
             throw new IllegalStateException("Cannot pause session in status " + s.getStatus());
         }
 
-        if (s.getStatus() == SessionStatus.PAUSED) return; // idempotent
+        if (s.getStatus() == SessionStatus.PAUSED) return;
 
         s.setStatus(SessionStatus.PAUSED);
         s.setUpdatedAt(Instant.now());
         uploadSessionRepository.save(s);
 
-        // Pause IN_PROGRESS files only
         List<UploadFile> files = uploadFileRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
         for (UploadFile f : files) {
             if (f.getStatus() == FileStatus.IN_PROGRESS) {
@@ -283,18 +291,17 @@ public class UploadServiceImpl implements UploadService {
         UploadSession s = uploadSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new NoSuchElementException("Session not found: " + sessionId));
 
-        if (s.getStatus() == SessionStatus.COMPLETED ||
-                s.getStatus() == SessionStatus.FAILED ||
-                s.getStatus() == SessionStatus.CANCELLED) {
+        if (s.getStatus() == SessionStatus.COMPLETED
+                || s.getStatus() == SessionStatus.FAILED
+                || s.getStatus() == SessionStatus.CANCELLED) {
             throw new IllegalStateException("Cannot resume session in status " + s.getStatus());
         }
-        if (s.getStatus() == SessionStatus.IN_PROGRESS) return; // idempotent
+        if (s.getStatus() == SessionStatus.IN_PROGRESS) return;
 
         s.setStatus(SessionStatus.IN_PROGRESS);
         s.setUpdatedAt(Instant.now());
         uploadSessionRepository.save(s);
 
-        // Resume previously paused files
         List<UploadFile> files = uploadFileRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
         for (UploadFile f : files) {
             if (f.getStatus() == FileStatus.PAUSED) {
@@ -313,12 +320,11 @@ public class UploadServiceImpl implements UploadService {
         if (f.getStatus() == FileStatus.UPLOADED || f.getStatus() == FileStatus.FAILED) {
             throw new IllegalStateException("Cannot pause file in status " + f.getStatus());
         }
-        if (f.getStatus() == FileStatus.PAUSED) return; // idempotent
+        if (f.getStatus() == FileStatus.PAUSED) return;
 
         f.setStatus(FileStatus.PAUSED);
         f.setUpdatedAt(Instant.now());
         uploadFileRepository.save(f);
-
     }
 
     @Override
@@ -329,11 +335,10 @@ public class UploadServiceImpl implements UploadService {
         if (f.getStatus() == FileStatus.UPLOADED || f.getStatus() == FileStatus.FAILED) {
             throw new IllegalStateException("Cannot resume file in status " + f.getStatus());
         }
-        if (f.getStatus() == FileStatus.IN_PROGRESS) return; // idempotent
+        if (f.getStatus() == FileStatus.IN_PROGRESS) return;
 
         f.setStatus(FileStatus.IN_PROGRESS);
         f.setUpdatedAt(Instant.now());
         uploadFileRepository.save(f);
-
     }
 }
