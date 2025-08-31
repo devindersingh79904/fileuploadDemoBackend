@@ -22,18 +22,22 @@ public class UploadController {
 
     private final UploadService uploadService;
 
+    // Start or reuse a session for a user
     @PostMapping("/start")
     public ResponseEntity<StartSessionResponse> startSession(@Valid @RequestBody StartSessionRequest request) {
         StartSessionResponse response = uploadService.startSession(request);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    // Register a file under a session
     @PostMapping("/{sessionId}/files")
-    public ResponseEntity<RegisterFileResponse> registerFile(@PathVariable String sessionId, @Valid @RequestBody RegisterFileRequest request) {
+    public ResponseEntity<RegisterFileResponse> registerFile(@PathVariable String sessionId,
+                                                             @Valid @RequestBody RegisterFileRequest request) {
         RegisterFileResponse response = uploadService.registerFile(sessionId, request);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    // Get a presigned URL for a specific part of a file
     @PostMapping("/{fileId}/parts/url")
     public ResponseEntity<PresignPartUrlResponse> presignPartUrl(@PathVariable String fileId,
                                                                  @Valid @RequestBody PresignPartUrlRequest req) {
@@ -41,7 +45,7 @@ public class UploadController {
         return ResponseEntity.ok(body);
     }
 
-    // 4) Complete file (send all partNumber + eTag pairs)
+    // Complete a file (send all partNumber + eTag pairs)
     @PatchMapping("/{fileId}/complete")
     public ResponseEntity<Void> completeFile(@PathVariable String fileId,
                                              @Valid @RequestBody CompleteFileRequest req) {
@@ -49,13 +53,14 @@ public class UploadController {
         return ResponseEntity.noContent().build();
     }
 
+    // Get status of a session
     @GetMapping("/{sessionId}/status")
     public ResponseEntity<SessionStatusResponse> sessionStatus(@PathVariable String sessionId) {
         SessionStatusResponse body = uploadService.getSessionStatus(sessionId);
         return ResponseEntity.ok(body);
     }
 
-    // Explicit pause/resume — session
+    // Pause / resume a session
     @PatchMapping("/{sessionId}/pause")
     public ResponseEntity<Void> pauseSession(@PathVariable String sessionId) {
         uploadService.pauseSession(sessionId);
@@ -68,7 +73,7 @@ public class UploadController {
         return ResponseEntity.noContent().build();
     }
 
-    // Explicit pause/resume — file
+    // Pause / resume a single file
     @PatchMapping("/files/{fileId}/pause")
     public ResponseEntity<Void> pauseFile(@PathVariable String fileId) {
         uploadService.pauseFile(fileId);
@@ -81,4 +86,10 @@ public class UploadController {
         return ResponseEntity.noContent().build();
     }
 
+    // NEW: Explicitly complete (finalize) the session after all files are uploaded
+    @PatchMapping("/{sessionId}/complete")
+    public ResponseEntity<Void> completeSession(@PathVariable String sessionId) {
+        uploadService.completeSession(sessionId);
+        return ResponseEntity.noContent().build();
+    }
 }
