@@ -30,13 +30,16 @@ public class UploadSession {
     @Column(name = "user_id", nullable = false, length = 120)
     private String userId;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private SessionStatus status = SessionStatus.IN_PROGRESS;
 
+    @Builder.Default
     @Column(name = "created_at", nullable = false,updatable = false)
     private Instant createdAt = Instant.now();
 
+    @Builder.Default
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 }

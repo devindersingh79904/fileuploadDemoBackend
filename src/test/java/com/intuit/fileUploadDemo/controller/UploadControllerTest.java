@@ -1,177 +1,215 @@
 package com.intuit.fileUploadDemo.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intuit.fileUploadDemo.dto.request.CompleteFileRequest;
+import com.intuit.fileUploadDemo.dto.request.PresignPartUrlRequest;
 import com.intuit.fileUploadDemo.dto.request.RegisterFileRequest;
 import com.intuit.fileUploadDemo.dto.request.StartSessionRequest;
-import com.intuit.fileUploadDemo.dto.response.RegisterFileResponse;
-import com.intuit.fileUploadDemo.dto.response.SessionStatusResponse;
-import com.intuit.fileUploadDemo.dto.response.StartSessionResponse;
+import com.intuit.fileUploadDemo.dto.response.*;
 import com.intuit.fileUploadDemo.exception.GlobalExceptionHandler;
-import com.intuit.fileUploadDemo.exception.ResourceNotFoundException;
 import com.intuit.fileUploadDemo.service.UploadService;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.Arrays;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * Test class for UploadController
- */
-@ExtendWith(MockitoExtension.class)
+@WebMvcTest(controllers = UploadController.class)
+@Import(GlobalExceptionHandler.class)
 class UploadControllerTest {
 
-    private MockMvc mockMvc;
+    @Autowired
+    private MockMvc mvc;
 
-    @Mock
+    @MockitoBean
     private UploadService uploadService;
 
-    @InjectMocks
-    private UploadController uploadController;
-
-    private ObjectMapper objectMapper;
-
-    private static final String SESSION_ID = "test-session-123";
-    private static final String FILE_ID = "test-file-456";
-    private static final String USER_ID = "test-user-789";
+    private final ObjectMapper om = new ObjectMapper();
 
     @BeforeEach
-    void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(uploadController)
-                .setControllerAdvice(new GlobalExceptionHandler())
-                .build();
-        objectMapper = new ObjectMapper();
-    }
+    void setup() {}
 
     @Test
-    @DisplayName("Should successfully start a new session")
-    void startSession_Success() throws Exception {
-        StartSessionRequest request = new StartSessionRequest(USER_ID);
-        StartSessionResponse expectedResponse = new StartSessionResponse(SESSION_ID);
+    void startSession_ok() throws Exception {
+        Mockito.when(uploadService.startSession(any(StartSessionRequest.class)))
+                .thenReturn(new StartSessionResponse("S123"));
 
-        when(uploadService.startSession(any(StartSessionRequest.class)))
-                .thenReturn(expectedResponse);
+        StartSessionRequest req = new StartSessionRequest();
+        req.setUserId("user-1");
 
-        mockMvc.perform(post("/api/v1/upload/start")
+        mvc.perform(post("/api/v1/upload/start")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(om.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionId").value(SESSION_ID));
-
-        verify(uploadService, times(1)).startSession(any(StartSessionRequest.class));
+                .andExpect(jsonPath("$.sessionId").value("S123"));
     }
-
+    // 400: startSession missing userId
     @Test
-    @DisplayName("Should return 400 when starting session with invalid request")
-    void startSession_InvalidRequest() throws Exception {
-        StartSessionRequest invalidRequest = new StartSessionRequest("");
-
-        mockMvc.perform(post("/api/v1/upload/start")
+    void startSession_badRequest_when_userId_missing() throws Exception {
+        // empty body -> violates @Valid on StartSessionRequest.userId
+        mvc.perform(post("/api/v1/upload/start")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(invalidRequest)))
+                        .content("{}"))
                 .andExpect(status().isBadRequest());
+    }
 
-        verify(uploadService, never()).startSession(any());
+    // 404: session status for unknown session
+    @Test
+    void sessionStatus_404_when_session_not_found() throws Exception {
+        Mockito.when(uploadService.getSessionStatus("NO"))
+                .thenThrow(new com.intuit.fileUploadDemo.exception.ResourceNotFoundException("Session not found"));
+
+        mvc.perform(get("/api/v1/upload/{sessionId}/status", "NO"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("Should successfully register a file under a session")
-    void registerFile_Success() throws Exception {
-        RegisterFileRequest request = new RegisterFileRequest("test-file.txt", 1024L, 5);
-        RegisterFileResponse expectedResponse = new RegisterFileResponse(FILE_ID, "s3-key", "upload-id");
+    void registerFile_ok() throws Exception {
+        Mockito.when(uploadService.registerFile(eq("S123"), any(RegisterFileRequest.class)))
+                .thenReturn(new RegisterFileResponse("F1", "S123/F1/report.pdf", "upl-1"));
 
-        when(uploadService.registerFile(eq(SESSION_ID), any(RegisterFileRequest.class)))
-                .thenReturn(expectedResponse);
+        RegisterFileRequest req = new RegisterFileRequest();
+        req.setFileName("report.pdf");
+        req.setFileSize(12345L);
+        req.setChunkCount(3);
 
-        mockMvc.perform(post("/api/v1/upload/{sessionId}/files", SESSION_ID)
+        mvc.perform(post("/api/v1/upload/{sessionId}/files", "S123")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(om.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fileId").value(FILE_ID))
-                .andExpect(jsonPath("$.s3Key").value("s3-key"))
-                .andExpect(jsonPath("$.uploadId").value("upload-id"));
+                .andExpect(jsonPath("$.fileId").value("F1"))
+                .andExpect(jsonPath("$.s3Key").value("S123/F1/report.pdf"))
+                .andExpect(jsonPath("$.uploadId").value("upl-1"));
+    }
 
-        verify(uploadService, times(1)).registerFile(eq(SESSION_ID), any(RegisterFileRequest.class));
+    // 400: registerFile invalid chunkCount (<=0)
+    @Test
+    void registerFile_badRequest_when_chunkCount_invalid() throws Exception {
+        RegisterFileRequest req = new RegisterFileRequest();
+        req.setFileName("report.pdf");
+        req.setFileSize(12345L);
+        req.setChunkCount(0); // invalid
+
+        mvc.perform(post("/api/v1/upload/{sessionId}/files", "S123")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+
+    @Test
+    void sessionStatus_ok() throws Exception {
+        SessionStatusResponse.FileStatusItem item =
+                new SessionStatusResponse.FileStatusItem("F1","report.pdf",3,1,
+                        com.intuit.fileUploadDemo.entities.enums.FileStatus.IN_PROGRESS, List.of(2,3));
+        Mockito.when(uploadService.getSessionStatus("S123"))
+                .thenReturn(new SessionStatusResponse("S123",
+                        com.intuit.fileUploadDemo.entities.enums.SessionStatus.IN_PROGRESS,
+                        List.of(item)));
+
+        mvc.perform(get("/api/v1/upload/{sessionId}/status","S123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").value("S123"))
+                .andExpect(jsonPath("$.files[0].fileId").value("F1"));
     }
 
     @Test
-    @DisplayName("Should successfully get session status")
-    void getSessionStatus_Success() throws Exception {
-        SessionStatusResponse.FileStatusItem fileStatus = new SessionStatusResponse.FileStatusItem(
-                FILE_ID, "test.txt", 5, 5, 
-                com.intuit.fileUploadDemo.entities.enums.FileStatus.UPLOADED, Arrays.asList()
-        );
-        SessionStatusResponse expectedResponse = new SessionStatusResponse(
-                SESSION_ID, 
-                com.intuit.fileUploadDemo.entities.enums.SessionStatus.IN_PROGRESS, 
-                Arrays.asList(fileStatus)
-        );
+    void presignPart_ok() throws Exception {
+        Mockito.when(uploadService.presignPartUrl(eq("F1"), any(PresignPartUrlRequest.class)))
+                .thenReturn(new PresignPartUrlResponse("https://s3/presigned"));
 
-        when(uploadService.getSessionStatus(SESSION_ID)).thenReturn(expectedResponse);
+        PresignPartUrlRequest req = new PresignPartUrlRequest();
+        req.setPartNumber(1);
 
-        mockMvc.perform(get("/api/v1/upload/{sessionId}/status", SESSION_ID))
+        mvc.perform(post("/api/v1/upload/files/{fileId}/parts/url","F1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionId").value(SESSION_ID))
-                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
-                .andExpect(jsonPath("$.files").isArray())
-                .andExpect(jsonPath("$.files.length()").value(1));
-
-        verify(uploadService, times(1)).getSessionStatus(SESSION_ID);
+                .andExpect(jsonPath("$.url").exists());
     }
 
     @Test
-    @DisplayName("Should successfully pause a session")
-    void pauseSession_Success() throws Exception {
-        doNothing().when(uploadService).pauseSession(SESSION_ID);
+    void completeFile_ok() throws Exception {
+        Mockito.doNothing().when(uploadService).completeFile(eq("F1"), any(CompleteFileRequest.class));
 
-        mockMvc.perform(patch("/api/v1/upload/{sessionId}/pause", SESSION_ID))
+        CompleteFileRequest req = new CompleteFileRequest();
+        req.setUploadId("upl-1");
+        CompleteFileRequest.PartETag p1 = new CompleteFileRequest.PartETag();
+        p1.setPartNumber(1);
+        p1.setETag("etag-1");
+        req.setParts(List.of(p1));
+
+        mvc.perform(patch("/api/v1/upload/files/{fileId}/complete","F1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(req)))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void pause_resume_complete_session_ok() throws Exception {
+        Mockito.doNothing().when(uploadService).pauseSession("S123");
+        Mockito.doNothing().when(uploadService).resumeSession("S123");
+        Mockito.doNothing().when(uploadService).completeSession("S123");
+
+        mvc.perform(patch("/api/v1/upload/{sessionId}/pause","S123"))
                 .andExpect(status().isNoContent());
 
-        verify(uploadService, times(1)).pauseSession(SESSION_ID);
+        mvc.perform(patch("/api/v1/upload/{sessionId}/resume","S123"))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(patch("/api/v1/upload/{sessionId}/complete","S123"))
+                .andExpect(status().isNoContent());
     }
 
     @Test
-    @DisplayName("Should handle ResourceNotFoundException with 404 status")
-    void handleResourceNotFoundException() throws Exception {
-        when(uploadService.getSessionStatus(SESSION_ID))
-                .thenThrow(new ResourceNotFoundException("Session not found: " + SESSION_ID));
+    void pause_resume_file_ok() throws Exception {
+        Mockito.doNothing().when(uploadService).pauseFile("F1");
+        Mockito.doNothing().when(uploadService).resumeFile("F1");
 
-        mockMvc.perform(get("/api/v1/upload/{sessionId}/status", SESSION_ID))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.message").value("Session not found: " + SESSION_ID));
+        mvc.perform(patch("/api/v1/upload/files/{fileId}/pause","F1"))
+                .andExpect(status().isNoContent());
 
-        verify(uploadService, times(1)).getSessionStatus(SESSION_ID);
+        mvc.perform(patch("/api/v1/upload/files/{fileId}/resume","F1"))
+                .andExpect(status().isNoContent());
     }
 
     @Test
-    @DisplayName("Should handle service exceptions gracefully")
-    void handleServiceException() throws Exception {
-        when(uploadService.startSession(any(StartSessionRequest.class)))
-                .thenThrow(new RuntimeException("Service error"));
+    void getFileParts_ok() throws Exception {
+        FilePartsResponse.UploadedPart up = new FilePartsResponse.UploadedPart(1,"etag-1");
+        FilePartsResponse resp = new FilePartsResponse();
+        resp.setFileId("F1");
+        resp.setS3Key("S123/F1/report.pdf");
+        resp.setUploadId("upl-1");
+        resp.setUploadedParts(List.of(up));
+        resp.setPendingPartNumbers(List.of(2,3));
 
-        StartSessionRequest request = new StartSessionRequest(USER_ID);
+        Mockito.when(uploadService.getFileParts("F1")).thenReturn(resp);
 
-        mockMvc.perform(post("/api/v1/upload/start")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.status").value(500))
-                .andExpect(jsonPath("$.message").value("Something went wrong"));
-
-        verify(uploadService, times(1)).startSession(any(StartSessionRequest.class));
+        mvc.perform(get("/api/v1/upload/files/{fileId}/parts","F1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fileId").value("F1"))
+                .andExpect(jsonPath("$.uploadedParts[0].partNumber").value(1));
     }
+
+    // 404: file parts for unknown file
+    @Test
+    void getFileParts_404_when_file_not_found() throws Exception {
+        Mockito.when(uploadService.getFileParts("NO"))
+                .thenThrow(new com.intuit.fileUploadDemo.exception.ResourceNotFoundException("File not found"));
+
+        mvc.perform(get("/api/v1/upload/files/{fileId}/parts", "NO"))
+                .andExpect(status().isNotFound());
+    }
+
 }

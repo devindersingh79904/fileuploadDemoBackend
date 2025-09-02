@@ -40,9 +40,11 @@ public class UploadFile {
     @Column(name = "total_chunks", nullable = false)
     private int totalChunks;
 
+    @Builder.Default
     @Column(name = "uploaded_chunks", nullable = false)
     private int uploadedChunks = 0;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private FileStatus status = FileStatus.PENDING;
@@ -57,9 +59,11 @@ public class UploadFile {
     @Column(name = "upload_id", length = 255)
     private String uploadId;
 
+    @Builder.Default
     @Column(name = "created_at", nullable = false,updatable = false)
     private Instant createdAt = Instant.now();
 
+    @Builder.Default
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 }

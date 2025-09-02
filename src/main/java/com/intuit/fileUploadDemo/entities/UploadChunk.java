@@ -38,6 +38,7 @@ public class UploadChunk {
     @Column(name = "chunk_index", nullable = false)
     private int chunkIndex; // 0-based index
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private ChunkStatus status = ChunkStatus.PENDING;
